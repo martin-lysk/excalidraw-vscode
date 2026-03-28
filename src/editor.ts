@@ -178,6 +178,10 @@ export class ExcalidrawEditor {
           case "info":
             vscode.window.showInformationMessage(msg.content);
             break;
+          case "frame-exports":
+            console.log("[Extension] Received frame-exports message with", msg.content?.length, "exports");
+            await this.handleFrameExports(msg.content);
+            break;
         }
       },
       this
@@ -255,6 +259,8 @@ export class ExcalidrawEditor {
       }
     );
 
+    const config = vscode.workspace.getConfiguration("excalidraw");
+
     this.webview.html = await this.buildHtmlForWebview({
       content: Array.from(this.document.content),
       contentType: this.document.contentType,
@@ -264,6 +270,9 @@ export class ExcalidrawEditor {
       imageParams: this.getImageParams(),
       langCode: this.getLanguage(),
       name: this.extractName(this.document.uri),
+      autoExportFrames: config.get<boolean>("autoExportFrames", true),
+      frameExportThemes: config.get("frameExportThemes", ["light", "dark"]) as ("light" | "dark")[],
+      frameExportDebounce: config.get<number>("frameExportDebounce", 500),
     });
 
     return new vscode.Disposable(() => {
@@ -291,6 +300,65 @@ export class ExcalidrawEditor {
     return vscode.workspace
       .getConfiguration("excalidraw")
       .get("theme", "light");
+  }
+
+  private async handleFrameExports(exports: any[]) {
+    console.log("[Extension] handleFrameExports called");
+    const config = vscode.workspace.getConfiguration("excalidraw");
+    const autoExport = config.get<boolean>("autoExportFrames", true);
+
+    console.log("[Extension] autoExportFrames setting:", autoExport);
+
+    if (!autoExport) {
+      console.log("[Extension] Auto-export is disabled, skipping");
+      return;
+    }
+
+    const basePath = path.dirname(this.document.uri.fsPath);
+    const basename = path.parse(this.document.uri.fsPath).name;
+    const exportLocation = config.get<string>("frameExportLocation", "same");
+
+    console.log("[Extension] basePath:", basePath);
+    console.log("[Extension] basename:", basename);
+    console.log("[Extension] exportLocation:", exportLocation);
+
+    let exportDir = basePath;
+    if (exportLocation === "subfolder") {
+      const subfolder = config.get<string>("frameExportSubfolder", ".exports");
+      exportDir = path.join(basePath, subfolder);
+      // Ensure directory exists
+      try {
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(exportDir));
+      } catch {
+        // Directory might already exist, ignore error
+      }
+    }
+
+    console.log("[Extension] exportDir:", exportDir);
+
+    for (const exportData of exports) {
+      const filename = `${basename}.excalidraw.${exportData.frameName}.${exportData.theme}.svg`;
+      const filepath = path.join(exportDir, filename);
+      const uri = vscode.Uri.file(filepath);
+
+      console.log("[Extension] Writing export:", filename);
+      console.log("[Extension] Full path:", filepath);
+
+      try {
+        await vscode.workspace.fs.writeFile(
+          uri,
+          new TextEncoder().encode(exportData.svg)
+        );
+        console.log("[Extension] Successfully wrote:", filename);
+      } catch (error) {
+        console.error("[Extension] Failed to write:", filename, error);
+        vscode.window.showErrorMessage(
+          `Failed to write frame export ${filename}: ${(error as Error).message}`
+        );
+      }
+    }
+
+    console.log("[Extension] handleFrameExports completed");
   }
 
   public extractName(uri: vscode.Uri) {

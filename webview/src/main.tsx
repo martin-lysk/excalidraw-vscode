@@ -129,6 +129,9 @@ async function main() {
           imageParams={config.imageParams}
           langCode={config.langCode}
           dirty={isDirty}
+          autoExportFrames={config.autoExportFrames}
+          frameExportThemes={config.frameExportThemes}
+          frameExportDebounce={config.frameExportDebounce}
         />
       </React.StrictMode>,
       rootElement

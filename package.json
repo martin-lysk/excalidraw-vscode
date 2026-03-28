@@ -242,6 +242,47 @@
                             "exportWithBackground": true,
                             "exportWithDarkMode": false
                         }
+                    },
+                    "excalidraw.autoExportFrames": {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "Automatically export frames with 'export_' prefix to SVG files"
+                    },
+                    "excalidraw.frameExportThemes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "light",
+                                "dark"
+                            ]
+                        },
+                        "default": [
+                            "light",
+                            "dark"
+                        ],
+                        "description": "Which themes to export for each frame"
+                    },
+                    "excalidraw.frameExportLocation": {
+                        "type": "string",
+                        "enum": [
+                            "same",
+                            "subfolder"
+                        ],
+                        "default": "same",
+                        "description": "Where to export frame SVG files relative to the main file"
+                    },
+                    "excalidraw.frameExportSubfolder": {
+                        "type": "string",
+                        "default": ".exports",
+                        "description": "Subfolder name when frameExportLocation is 'subfolder'"
+                    },
+                    "excalidraw.frameExportDebounce": {
+                        "type": "number",
+                        "default": 500,
+                        "minimum": 100,
+                        "maximum": 5000,
+                        "description": "Debounce delay in milliseconds before regenerating exports after file changes"
                     }
                 }
             }

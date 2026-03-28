@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import {
   Excalidraw,
   loadLibraryFromBlob,
@@ -17,6 +17,9 @@ import {
   LibraryItems,
 } from "@excalidraw/excalidraw/types";
 import { vscode } from "./vscode.ts";
+import {
+  exportAllFrames,
+} from "./frame-exporter.ts";
 
 function detectTheme() {
   switch (document.body.className) {
@@ -83,12 +86,117 @@ export default function App(props: {
     appState: Partial<AppState>,
     files?: BinaryFiles
   ) => void;
+  autoExportFrames?: boolean;
+  frameExportThemes?: ("light" | "dark")[];
+  frameExportDebounce?: number;
 }) {
   const [excalidrawAPI, setExcalidrawAPI] = useState<ExcalidrawImperativeAPI>();
   const libraryItemsRef = useRef(props.libraryItems);
   const { theme, setThemeConfig } = useTheme(props.theme);
   const [imageParams, setImageParams] = useState(props.imageParams);
   const [langCode, setLangCode] = useState(props.langCode);
+
+  // Track previous elements for frame change detection
+  const [previousElements, setPreviousElements] = useState<readonly any[]>(
+    props.initialData?.elements || []
+  );
+
+  // Debounced frame export handler
+  const exportTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  );
+
+  const handleChange = useCallback(
+    (
+      elements: readonly any[],
+      appState: Partial<AppState>,
+      files?: BinaryFiles
+    ) => {
+      console.log("[App] onChange called");
+      console.log("[App] autoExportFrames:", props.autoExportFrames);
+
+      // 1. Save main file (existing behavior)
+      props.onChange(elements, appState, files);
+
+      // 2. Export frames if enabled and there are exportable frames
+      if (props.autoExportFrames !== false) {
+        // Check if there are any exportable frames
+        const hasExportableFrames = elements.some(el =>
+          el.type === 'frame' &&
+          el.name !== null &&
+          el.name !== undefined &&
+          el.name.startsWith('export_')
+        );
+
+        console.log("[App] hasExportableFrames:", hasExportableFrames);
+
+        if (hasExportableFrames) {
+          console.log("[App] Frame export triggered!");
+          // Clear any pending export
+          if (exportTimeoutRef.current) {
+            clearTimeout(exportTimeoutRef.current);
+          }
+
+          // Debounce export
+          const debounceDelay = props.frameExportDebounce || 500;
+          console.log("[App] Debouncing export by", debounceDelay, "ms");
+          exportTimeoutRef.current = setTimeout(async () => {
+            console.log("[App] Export timeout fired, starting export...");
+            try {
+              const themes = props.frameExportThemes || ["light", "dark"];
+              console.log("[App] Calling exportAllFrames with themes:", themes);
+              const exports = await exportAllFrames(
+                elements,
+                appState,
+                files || {},
+                themes
+              );
+
+              console.log("[App] Got", exports.length, "exports from exportAllFrames");
+              if (exports.length > 0) {
+                console.log("[App] Sending frame-exports message to extension");
+                vscode.postMessage({
+                  type: "frame-exports",
+                  content: exports,
+                });
+
+                console.log("[App] Sending info toast message");
+                vscode.postMessage({
+                  type: "info",
+                  content: `Exported ${exports.length} frame(s)`,
+                });
+              } else {
+                console.log("[App] No exports to send");
+              }
+            } catch (error) {
+              console.error("[App] Export failed:", error);
+              vscode.postMessage({
+                type: "error",
+                content: `Failed to export frames: ${(error as Error).message}`,
+              });
+            }
+          }, debounceDelay);
+        } else {
+          console.log("[App] No exportable frames found");
+        }
+      } else {
+        console.log("[App] Frame export disabled");
+      }
+
+      // Update tracked elements
+      setPreviousElements(elements);
+    },
+    [previousElements, props]
+  );
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (exportTimeoutRef.current) {
+        clearTimeout(exportTimeoutRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!props.dirty) {
@@ -173,7 +281,7 @@ export default function App(props: {
         }}
         libraryReturnUrl={"vscode://pomdtr.excalidraw-editor/importLib"}
         onChange={(elements, appState, files) =>
-          props.onChange(
+          handleChange(
             elements,
             { ...appState, ...imageParams, exportEmbedScene: true },
             files
