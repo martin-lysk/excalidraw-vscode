@@ -1,10 +1,10 @@
 {
     "name": "excalidraw-editor",
     "icon": "assets/logo.png",
-    "displayName": "Excalidraw",
-    "description": "Draw schemas in VS Code using Excalidraw",
-    "version": "3.9.1",
-    "publisher": "pomdtr",
+    "displayName": "Excalidraw (with Frame Export)",
+    "description": "Excalidraw editor with automatic frame export to SVG files",
+    "version": "1.0.0",
+    "publisher": "martin-lysk",
     "engines": {
         "vscode": "^1.63.0"
     },
@@ -19,16 +19,16 @@
         "excalidraw"
     ],
     "author": {
-        "name": "pomdtr",
-        "email": "achille.lacoin@gmail.com",
-        "url": "https://github.com/pomdtr"
+        "name": "Martin Lysk",
+        "email": "martin.lysk@gmail.com",
+        "url": "https://github.com/martin-lysk"
     },
     "activationEvents": [
         "workspaceContains:**/*.{excalidraw,excalidraw.svg,excalidraw.png}"
     ],
     "repository": {
         "type": "git",
-        "url": "https://github.com/excalidraw/excalidraw-vscode"
+        "url": "https://github.com/martin-lysk/excalidraw-vscode"
     },
     "browser": "./dist/extension.js",
     "contributes": {
