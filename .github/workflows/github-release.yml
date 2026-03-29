@@ -1,0 +1,69 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Get version from tag
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "version=$VERSION" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build webview
+        run: pnpm run build-webview
+
+      - name: Install vsce
+        run: npm install -g @vscode/vsce
+
+      - name: Package extension
+        run: vsce package --no-dependencies
+
+      - name: Rename VSIX with version
+        run: |
+          mv excalidraw-editor-*.vsix excalidraw-editor-${{ env.version }}.vsix
+
+      - name: Create checksum
+        run: |
+          sha256sum excalidraw-editor-${{ env.version }}.vsix > excalidraw-editor-${{ env.version }}.vsix.sha256
+          echo "Checksum:"
+          cat excalidraw-editor-${{ env.version }}.vsix.sha256
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            excalidraw-editor-${{ env.version }}.vsix
+            excalidraw-editor-${{ env.version }}.vsix.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
