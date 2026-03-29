@@ -385,6 +385,16 @@
                         "filenamePattern": "*.excalidraw.png"
                     }
                 ]
+            },
+            {
+                "viewType": "editor.excalidraw.frame-reference",
+                "displayName": "Excalidraw Frame Reference",
+                "priority": "default",
+                "selector": [
+                    {
+                        "filenamePattern": "*.excalidraw.*.*.svg"
+                    }
+                ]
             }
         ],
         "keybindings": [

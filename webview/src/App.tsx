@@ -112,9 +112,6 @@ export default function App(props: {
       appState: Partial<AppState>,
       files?: BinaryFiles
     ) => {
-      console.log("[App] onChange called");
-      console.log("[App] autoExportFrames:", props.autoExportFrames);
-
       // 1. Save main file (existing behavior)
       props.onChange(elements, appState, files);
 
@@ -128,10 +125,7 @@ export default function App(props: {
           el.name.startsWith('export_')
         );
 
-        console.log("[App] hasExportableFrames:", hasExportableFrames);
-
         if (hasExportableFrames) {
-          console.log("[App] Frame export triggered!");
           // Clear any pending export
           if (exportTimeoutRef.current) {
             clearTimeout(exportTimeoutRef.current);
@@ -139,12 +133,9 @@ export default function App(props: {
 
           // Debounce export
           const debounceDelay = props.frameExportDebounce || 500;
-          console.log("[App] Debouncing export by", debounceDelay, "ms");
           exportTimeoutRef.current = setTimeout(async () => {
-            console.log("[App] Export timeout fired, starting export...");
             try {
               const themes = props.frameExportThemes || ["light", "dark"];
-              console.log("[App] Calling exportAllFrames with themes:", themes);
               const exports = await exportAllFrames(
                 elements,
                 appState,
@@ -152,21 +143,11 @@ export default function App(props: {
                 themes
               );
 
-              console.log("[App] Got", exports.length, "exports from exportAllFrames");
               if (exports.length > 0) {
-                console.log("[App] Sending frame-exports message to extension");
                 vscode.postMessage({
                   type: "frame-exports",
                   content: exports,
                 });
-
-                console.log("[App] Sending info toast message");
-                vscode.postMessage({
-                  type: "info",
-                  content: `Exported ${exports.length} frame(s)`,
-                });
-              } else {
-                console.log("[App] No exports to send");
               }
             } catch (error) {
               console.error("[App] Export failed:", error);
@@ -176,11 +157,7 @@ export default function App(props: {
               });
             }
           }, debounceDelay);
-        } else {
-          console.log("[App] No exportable frames found");
         }
-      } else {
-        console.log("[App] Frame export disabled");
       }
 
       // Update tracked elements
@@ -197,6 +174,44 @@ export default function App(props: {
       }
     };
   }, []);
+
+  /**
+   * Scroll to a specific frame by name
+   * @param frameName - The name of the frame to scroll to (including export_ prefix)
+   */
+  const scrollToFrame = useCallback(
+    (frameName: string) => {
+      if (!excalidrawAPI) {
+        return;
+      }
+
+      // Get the current scene elements
+      const elements = excalidrawAPI.getSceneElements();
+
+      // Find the frame element
+      const frame = elements.find(
+        (el: any) => el.type === "frame" && el.name === frameName
+      );
+
+      if (!frame) {
+        vscode.postMessage({
+          type: "error",
+          content: `Frame "${frameName}" not found in the document`,
+        });
+        return;
+      }
+
+      // Use scrollToContent to scroll to the frame
+      excalidrawAPI.scrollToContent(
+        [frame],
+        {
+          duration: 500, // Smooth scroll animation
+          fitToContent: true, // Fit the frame in view
+        }
+      );
+    },
+    [excalidrawAPI]
+  );
 
   useEffect(() => {
     if (!props.dirty) {
@@ -244,6 +259,11 @@ export default function App(props: {
           }
           case "image-params-change": {
             setImageParams(message.imageParams);
+            break;
+          }
+          case "scroll-to-frame": {
+            scrollToFrame(message.frameName);
+            break;
           }
         }
       } catch (e) {

@@ -55,9 +55,7 @@ export function getFrameExportName(frame: FrameElement): string {
 export function getExportableFrames(
   elements: readonly ExcalidrawElement[]
 ): FrameElement[] {
-  const frames = elements.filter(isExportableFrame) as FrameElement[];
-  console.log("[Frame Exporter] Found frames:", frames.map(f => f.name));
-  return frames;
+  return elements.filter(isExportableFrame) as FrameElement[];
 }
 
 /**
@@ -124,9 +122,6 @@ export async function exportFrameToSvg(
   // Export only the contents, NOT the frame element itself
   const elementsToExport = frameElements;
 
-  // Export to SVG
-  console.log(`[Frame Exporter] Exporting frame "${frame.name}" (${theme})`);
-
   // Prepare appState with exportWithDarkMode set based on theme
   // This is the key to making colors work correctly!
   const exportAppState = {
@@ -175,15 +170,12 @@ export async function exportAllFrames(
   files: BinaryFiles,
   themes: ("light" | "dark")[] = ["light", "dark"]
 ): Promise<FrameExport[]> {
-  console.log("[Frame Exporter] exportAllFrames called with", elements.length, "elements");
   const frames = getExportableFrames(elements);
-  console.log("[Frame Exporter] Exporting", frames.length, "frames for themes:", themes);
   const exports: FrameExport[] = [];
 
   for (const frame of frames) {
     for (const theme of themes) {
       try {
-        console.log(`[Frame Exporter] Exporting frame "${frame.name}" (${theme})`);
         const exported = await exportFrameToSvg(
           frame,
           elements,
@@ -192,7 +184,6 @@ export async function exportAllFrames(
           theme
         );
         exports.push(exported);
-        console.log(`[Frame Exporter] Successfully exported ${exported.frameName} (${theme})`);
       } catch (error) {
         console.error(`[Frame Exporter] Failed to export frame ${frame.name}:`, error);
         // Continue with other frames
@@ -200,6 +191,5 @@ export async function exportAllFrames(
     }
   }
 
-  console.log("[Frame Exporter] Total exports:", exports.length);
   return exports;
 }

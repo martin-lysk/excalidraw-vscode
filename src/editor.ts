@@ -5,6 +5,7 @@ import { Base64 } from "js-base64";
 import { ExcalidrawDocument } from "./document";
 import { languageMap } from "./lang";
 import { showEditor } from "./commands";
+import { ExcalidrawFrameReferenceProvider } from "./frame-reference";
 
 export class ExcalidrawEditorProvider
   implements vscode.CustomEditorProvider<ExcalidrawDocument>
@@ -140,13 +141,53 @@ export class ExcalidrawEditor {
     readonly document: ExcalidrawDocument,
     readonly webview: vscode.Webview,
     readonly context: vscode.ExtensionContext
-  ) {}
+  ) {
+    // Check for pending frame center request
+    this.checkPendingFrameCenter();
+
+    // Listen for new frame reference requests
+    ExcalidrawFrameReferenceProvider.onFrameReferenceRequested((e) => {
+      if (e.uri === this.document.uri.toString()) {
+        this.centerOnFrame(e.frameName);
+      }
+    });
+  }
 
   isViewOnly() {
     return (
       this.document.uri.scheme === "git" ||
       this.document.uri.scheme === "conflictResolution"
     );
+  }
+
+  private async checkPendingFrameCenter() {
+    const pendingData = this.context.globalState.get<string>("pendingFrameCenter");
+    if (!pendingData) {
+      return;
+    }
+
+    try {
+      const pending = JSON.parse(pendingData);
+      // Check if the request is recent (within 5 seconds)
+      if (Date.now() - pending.timestamp < 5000) {
+        // Clear the pending request
+        await this.context.globalState.update("pendingFrameCenter", undefined);
+
+        // Send center message after a short delay to ensure the editor is ready
+        setTimeout(() => {
+          this.centerOnFrame(pending.frameName);
+        }, 500);
+      }
+    } catch (error) {
+      console.error("[Editor] Failed to parse pending frame center request:", error);
+    }
+  }
+
+  private centerOnFrame(frameName: string) {
+    this.webview.postMessage({
+      type: "scroll-to-frame",
+      frameName,
+    });
   }
 
   public async setupWebview() {
@@ -179,7 +220,6 @@ export class ExcalidrawEditor {
             vscode.window.showInformationMessage(msg.content);
             break;
           case "frame-exports":
-            console.log("[Extension] Received frame-exports message with", msg.content?.length, "exports");
             await this.handleFrameExports(msg.content);
             break;
         }
@@ -303,24 +343,16 @@ export class ExcalidrawEditor {
   }
 
   private async handleFrameExports(exports: any[]) {
-    console.log("[Extension] handleFrameExports called");
     const config = vscode.workspace.getConfiguration("excalidraw");
     const autoExport = config.get<boolean>("autoExportFrames", true);
 
-    console.log("[Extension] autoExportFrames setting:", autoExport);
-
     if (!autoExport) {
-      console.log("[Extension] Auto-export is disabled, skipping");
       return;
     }
 
     const basePath = path.dirname(this.document.uri.fsPath);
     const basename = path.parse(this.document.uri.fsPath).name;
     const exportLocation = config.get<string>("frameExportLocation", "same");
-
-    console.log("[Extension] basePath:", basePath);
-    console.log("[Extension] basename:", basename);
-    console.log("[Extension] exportLocation:", exportLocation);
 
     let exportDir = basePath;
     if (exportLocation === "subfolder") {
@@ -334,22 +366,16 @@ export class ExcalidrawEditor {
       }
     }
 
-    console.log("[Extension] exportDir:", exportDir);
-
     for (const exportData of exports) {
       const filename = `${basename}.excalidraw.${exportData.frameName}.${exportData.theme}.svg`;
       const filepath = path.join(exportDir, filename);
       const uri = vscode.Uri.file(filepath);
-
-      console.log("[Extension] Writing export:", filename);
-      console.log("[Extension] Full path:", filepath);
 
       try {
         await vscode.workspace.fs.writeFile(
           uri,
           new TextEncoder().encode(exportData.svg)
         );
-        console.log("[Extension] Successfully wrote:", filename);
       } catch (error) {
         console.error("[Extension] Failed to write:", filename, error);
         vscode.window.showErrorMessage(
@@ -357,8 +383,6 @@ export class ExcalidrawEditor {
         );
       }
     }
-
-    console.log("[Extension] handleFrameExports completed");
   }
 
   public extractName(uri: vscode.Uri) {
