@@ -46,22 +46,25 @@ jobs:
       - name: Package extension
         run: vsce package --no-dependencies
 
-      - name: Rename VSIX with version
+      - name: Get VSIX filename
+        id: vsix
         run: |
-          mv excalidraw-editor-*.vsix excalidraw-editor-${{ env.version }}.vsix
+          VSIX_FILE=$(ls excalidraw-editor-*.vsix | head -n 1)
+          echo "vsix_file=$VSIX_FILE" >> $GITHUB_OUTPUT
+          echo "VSIX file: $VSIX_FILE"
 
       - name: Create checksum
         run: |
-          sha256sum excalidraw-editor-${{ env.version }}.vsix > excalidraw-editor-${{ env.version }}.vsix.sha256
+          sha256sum ${{ steps.vsix.outputs.vsix_file }} > ${{ steps.vsix.outputs.vsix_file }}.sha256
           echo "Checksum:"
-          cat excalidraw-editor-${{ env.version }}.vsix.sha256
+          cat ${{ steps.vsix.outputs.vsix_file }}.sha256
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            excalidraw-editor-${{ env.version }}.vsix
-            excalidraw-editor-${{ env.version }}.vsix.sha256
+            ${{ steps.vsix.outputs.vsix_file }}
+            ${{ steps.vsix.outputs.vsix_file }}.sha256
           generate_release_notes: true
           draft: false
           prerelease: false

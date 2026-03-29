@@ -43,24 +43,27 @@ jobs:
       - name: Package extension
         run: vsce package --no-dependencies
 
-      - name: Rename VSIX with version
+      - name: Get VSIX filename
+        id: vsix
         run: |
-          mv excalidraw-editor-*.vsix excalidraw-editor-${{ env.version }}.vsix
+          VSIX_FILE=$(ls excalidraw-editor-*.vsix | head -n 1)
+          echo "vsix_file=$VSIX_FILE" >> $GITHUB_OUTPUT
+          echo "VSIX file: $VSIX_FILE"
 
       - name: Upload VSIX artifact
         uses: actions/upload-artifact@v4
         with:
-          name: excalidraw-editor-${{ env.version }}.vsix
-          path: excalidraw-editor-${{ env.version }}.vsix
+          name: ${{ steps.vsix.outputs.vsix_file }}
+          path: ${{ steps.vsix.outputs.vsix_file }}
           retention-days: 90
 
       - name: Create checksum
         run: |
-          sha256sum excalidraw-editor-${{ env.version }}.vsix > excalidraw-editor-${{ env.version }}.vsix.sha256
+          sha256sum ${{ steps.vsix.outputs.vsix_file }} > ${{ steps.vsix.outputs.vsix_file }}.sha256
 
       - name: Upload checksum artifact
         uses: actions/upload-artifact@v4
         with:
-          name: excalidraw-editor-${{ env.version }}.vsix.sha256
-          path: excalidraw-editor-${{ env.version }}.vsix.sha256
+          name: ${{ steps.vsix.outputs.vsix_file }}.sha256
+          path: ${{ steps.vsix.outputs.vsix_file }}.sha256
           retention-days: 90
