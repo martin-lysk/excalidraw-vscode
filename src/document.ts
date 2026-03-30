@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import * as path from "path";
 
 export class ExcalidrawDocument implements vscode.CustomDocument {
   uri: vscode.Uri;
@@ -11,7 +10,12 @@ export class ExcalidrawDocument implements vscode.CustomDocument {
   public readonly contentType;
 
   getContentType(): string {
-    switch (path.parse(this.uri.fsPath).ext) {
+    // Extract extension without path module
+    const fsPath = this.uri.fsPath;
+    const lastDotIndex = fsPath.lastIndexOf('.');
+    const ext = lastDotIndex >= 0 ? fsPath.slice(lastDotIndex) : '';
+
+    switch (ext) {
       case ".svg":
         return "image/svg+xml";
       case ".png":

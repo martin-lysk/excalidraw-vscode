@@ -388,11 +388,11 @@
             },
             {
                 "viewType": "editor.excalidraw.frame-reference",
-                "displayName": "Excalidraw Frame Reference",
+                "displayName": "Excalidraw Frame Export",
                 "priority": "default",
                 "selector": [
                     {
-                        "filenamePattern": "*.excalidraw.*.*.svg"
+                        "filenamePattern": "*.exp.svg"
                     }
                 ]
             }

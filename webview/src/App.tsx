@@ -117,12 +117,13 @@ export default function App(props: {
 
       // 2. Export frames if enabled and there are exportable frames
       if (props.autoExportFrames !== false) {
-        // Check if there are any exportable frames
+        // Check if there are any exportable frames (using the same check as exportAllFrames)
         const hasExportableFrames = elements.some(el =>
           el.type === 'frame' &&
           el.name !== null &&
           el.name !== undefined &&
-          el.name.startsWith('export_')
+          el.name.startsWith('export_') &&
+          !el.isDeleted // Exclude deleted frames
         );
 
         if (hasExportableFrames) {
