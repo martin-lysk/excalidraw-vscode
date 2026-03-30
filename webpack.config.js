@@ -28,9 +28,6 @@ const config = {
   resolve: {
     // support reading TypeScript and JavaScript files, 📖 -> https://github.com/TypeStrong/ts-loader
     extensions: [".ts", ".js"],
-    fallback: {
-      path: require.resolve("path-browserify"),
-    },
   },
   module: {
     rules: [
@@ -42,7 +39,7 @@ const config = {
             loader: "ts-loader",
             options: {
               compilerOptions: {
-                module: "es6", // override `tsconfig.json` so that TypeScript emits native JavaScript modules.
+                module: "esnext", // support dynamic imports
               },
             },
           },

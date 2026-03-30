@@ -1,11 +1,97 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { Base64 } from "js-base64";
 
 import { ExcalidrawDocument } from "./document";
 import { languageMap } from "./lang";
 import { showEditor } from "./commands";
-import { ExcalidrawFrameReferenceProvider } from "./frame-reference";
+
+/**
+ * Find the git root directory by traversing up from startPath
+ * Uses VSCode's cross-platform file system API
+ * @param startPath - Path to start searching from
+ * @returns Absolute path to git root, or null if not found
+ */
+async function findGitRoot(startPath: string): Promise<string | null> {
+  let currentUri = vscode.Uri.file(startPath);
+  const rootUri = vscode.Uri.file("/"); // Root directory
+
+  while (currentUri.toString() !== rootUri.toString()) {
+    const gitDirUri = vscode.Uri.joinPath(currentUri, ".git");
+    try {
+      // Try to stat the .git directory
+      await vscode.workspace.fs.stat(gitDirUri);
+      return currentUri.fsPath;
+    } catch {
+      // Directory doesn't exist, continue traversing up
+      const parentPath = currentUri.fsPath.split("/").slice(0, -1).join("/") || "/";
+      currentUri = vscode.Uri.file(parentPath);
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Join path parts using VSCode Uri utilities
+ */
+function joinPath(basePath: string, ...pathParts: string[]): string {
+  const uri = vscode.Uri.file(basePath);
+  const resultUri = vscode.Uri.joinPath(uri, ...pathParts);
+  return resultUri.fsPath;
+}
+
+/**
+ * Get directory name using VSCode Uri utilities
+ */
+function dirName(filePath: string): string {
+  const uri = vscode.Uri.file(filePath);
+  // Remove the last path component
+  const pathParts = uri.path.split("/").filter(Boolean);
+  pathParts.pop();
+  const parentPath = pathParts.length > 0 ? "/" + pathParts.join("/") : "/";
+  // Convert back to fsPath
+  return vscode.Uri.file(parentPath).fsPath;
+}
+
+/**
+ * Get relative path using VSCode Uri utilities
+ */
+function relativePath(from: string, to: string): string {
+  const fromUri = vscode.Uri.file(from);
+  const toUri = vscode.Uri.file(to);
+
+  // Simple relative path calculation
+  const fromParts = fromUri.path.split("/").filter(Boolean);
+  const toParts = toUri.path.split("/").filter(Boolean);
+
+  // Find common prefix
+  let commonLength = 0;
+  while (commonLength < fromParts.length && commonLength < toParts.length && fromParts[commonLength] === toParts[commonLength]) {
+    commonLength++;
+  }
+
+  // Build relative path
+  const upLevels = fromParts.length - commonLength - 1;
+  const relativeParts = [];
+
+  for (let i = 0; i < upLevels; i++) {
+    relativeParts.push("..");
+  }
+
+  relativeParts.push(...toParts.slice(commonLength));
+  return relativeParts.join("/") || ".";
+}
+
+/**
+ * Get basename without extension
+ */
+function baseName(filePath: string): string {
+  const uri = vscode.Uri.file(filePath);
+  const parts = uri.path.split("/").filter(Boolean);
+  const fileName = parts[parts.length - 1] || "";
+  const lastDotIndex = fileName.lastIndexOf(".");
+  return lastDotIndex >= 0 ? fileName.slice(0, lastDotIndex) : fileName;
+}
 
 export class ExcalidrawEditorProvider
   implements vscode.CustomEditorProvider<ExcalidrawDocument>
@@ -50,6 +136,14 @@ export class ExcalidrawEditorProvider
   }
 
   private static readonly viewType = "editor.excalidraw";
+
+  // Event emitter for frame reference requests (to be connected by extension.ts)
+  public static _onFrameReferenceRequested = new vscode.EventEmitter<{
+    uri: string;
+    frameName: string;
+  }>();
+  public static onFrameReferenceRequested =
+    ExcalidrawEditorProvider._onFrameReferenceRequested.event;
 
   constructor(private readonly context: vscode.ExtensionContext) {}
 
@@ -145,8 +239,8 @@ export class ExcalidrawEditor {
     // Check for pending frame center request
     this.checkPendingFrameCenter();
 
-    // Listen for new frame reference requests
-    ExcalidrawFrameReferenceProvider.onFrameReferenceRequested((e) => {
+    // Listen for new frame reference requests from our own event emitter
+    ExcalidrawEditorProvider.onFrameReferenceRequested((e) => {
       if (e.uri === this.document.uri.toString()) {
         this.centerOnFrame(e.frameName);
       }
@@ -350,43 +444,87 @@ export class ExcalidrawEditor {
       return;
     }
 
-    const basePath = path.dirname(this.document.uri.fsPath);
-    const basename = path.parse(this.document.uri.fsPath).name;
+    const basePath = dirName(this.document.uri.fsPath);
+    const docDir = basePath;
     const exportLocation = config.get<string>("frameExportLocation", "same");
 
-    let exportDir = basePath;
-    if (exportLocation === "subfolder") {
-      const subfolder = config.get<string>("frameExportSubfolder", ".exports");
-      exportDir = path.join(basePath, subfolder);
+    for (const exportData of exports) {
+      let exportFilePath: string;
+      const pathExpression = exportData.exportPath || exportData.frameName;
+
+      // Determine the base directory for export
+      if (pathExpression.startsWith("/")) {
+        // Absolute path from git root: /images/file
+        const gitRoot = await findGitRoot(docDir);
+        if (!gitRoot) {
+          vscode.window.showErrorMessage(
+            `Cannot resolve absolute path for "${pathExpression}": git root not found`
+          );
+          continue;
+        }
+        // Remove leading slash and resolve from git root
+        const relativePath = pathExpression.substring(1);
+        exportFilePath = joinPath(gitRoot, relativePath);
+      } else {
+        // Relative path: ../file or images/file or just file
+        let baseDir = docDir;
+
+        // Apply frameExportLocation setting if path doesn't start with ..
+        if (exportLocation === "subfolder" && !pathExpression.startsWith("..")) {
+          const subfolder = config.get<string>("frameExportSubfolder", ".exports");
+          baseDir = joinPath(docDir, subfolder);
+        }
+
+        exportFilePath = joinPath(baseDir, pathExpression);
+      }
+
+      // Add filename and theme: {path}.{theme}.exp.svg
+      const finalPath = `${exportFilePath}.${exportData.theme}.exp.svg`;
+      const uri = vscode.Uri.file(finalPath);
+
       // Ensure directory exists
+      const targetDir = dirName(finalPath);
       try {
-        await vscode.workspace.fs.createDirectory(vscode.Uri.file(exportDir));
+        await vscode.workspace.fs.createDirectory(vscode.Uri.file(targetDir));
       } catch {
         // Directory might already exist, ignore error
       }
-    }
 
-    for (const exportData of exports) {
-      const filename = `${basename}.excalidraw.${exportData.frameName}.${exportData.theme}.svg`;
-      const filepath = path.join(exportDir, filename);
-      const uri = vscode.Uri.file(filepath);
+      // Calculate relative path from SVG to source Excalidraw file
+      const absoluteSourcePath = this.document.uri.fsPath;
+      const relativeSourcePath = relativePath(targetDir, absoluteSourcePath);
+
+      // Inject relative source file path into SVG metadata
+      const svgWithSourcePath = exportData.svg.replace(
+        "{SOURCE_FILE_PATH}",
+        relativeSourcePath
+      );
 
       try {
         await vscode.workspace.fs.writeFile(
           uri,
-          new TextEncoder().encode(exportData.svg)
+          new TextEncoder().encode(svgWithSourcePath)
         );
       } catch (error) {
-        console.error("[Extension] Failed to write:", filename, error);
         vscode.window.showErrorMessage(
-          `Failed to write frame export ${filename}: ${(error as Error).message}`
+          `Failed to write frame export ${baseName(finalPath)}: ${
+            (error as Error).message
+          }`
         );
       }
     }
   }
 
   public extractName(uri: vscode.Uri) {
-    const name = path.parse(uri.fsPath).name;
+    // Use a simple string manipulation instead of path.parse
+    const fsPath = uri.fsPath;
+    const lastSepIndex = fsPath.lastIndexOf('/');
+    if (lastSepIndex === -1) {
+      // No path separator, return the whole path minus extension
+      const name = fsPath;
+      return name.endsWith(".excalidraw") ? name.slice(0, -11) : name;
+    }
+    const name = fsPath.slice(lastSepIndex + 1);
     return name.endsWith(".excalidraw") ? name.slice(0, -11) : name;
   }
 
@@ -488,9 +626,10 @@ function getFileWorkspaceFolder(
   uri: vscode.Uri,
   workspaceFolders: vscode.WorkspaceFolder[]
 ): vscode.WorkspaceFolder | undefined {
-  const parts = uri.path.split(path.sep).slice(0, -1);
+  // VSCode URIs always use forward slashes
+  const parts = uri.path.split('/').slice(0, -1);
   while (parts.length > 0) {
-    const joined = parts.join(path.sep);
+    const joined = parts.join('/');
     const folder = workspaceFolders.find((f) => f.uri.path === joined);
     if (folder) {
       return folder;

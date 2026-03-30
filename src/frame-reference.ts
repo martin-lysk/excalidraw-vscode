@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import * as path from "path";
 import { showEditor } from "./commands";
 
 /**
@@ -15,41 +14,53 @@ interface FrameReferenceDocument extends vscode.CustomDocument {
 }
 
 /**
- * Parsed information from an exported SVG filename
- * Format: {basename}.excalidraw.{frameName}.{theme}.svg
+ * Parsed information from an exported SVG
+ * Format: {frameName}.{theme}.exp.svg
  */
 interface ParsedFrameReference {
-  basename: string;
   frameName: string;
   theme: string;
   sourceFilePath: string;
 }
 
 /**
- * Parse an exported SVG filename to extract frame reference information
- * @param filepath - The absolute path to the SVG file
+ * Parse SVG metadata to extract frame reference information
+ * @param svgContent - The SVG file content
  * @returns ParsedFrameReference or null if not a valid frame export
  */
-function parseFrameReference(filepath: string): ParsedReference | null {
-  const basename = path.basename(filepath, ".svg");
-  const parsed = path.parse(filepath);
+function parseFrameReference(svgContent: string): ParsedFrameReference | null {
+  // Extract metadata from XML comment
+  // Match the multiline comment format
+  const lines = svgContent.split('\n');
+  let frameName: string | null = null;
+  let theme: string | null = null;
+  let sourceFilePath: string | null = null;
 
-  // Pattern: {basename}.excalidraw.{frameName}.{theme}.svg
-  const match = basename.match(/^(.+)\.excalidraw\.(.+)\.(light|dark)$/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.includes('Excalidraw Frame Export')) {
+      // Parse the next few lines
+      for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
+        const dataLine = lines[j];
+        if (dataLine.includes('Frame:')) {
+          frameName = dataLine.split('Frame:')[1].trim();
+        } else if (dataLine.includes('Theme:')) {
+          theme = dataLine.split('Theme:')[1].trim();
+        } else if (dataLine.includes('Source:')) {
+          sourceFilePath = dataLine.split('Source:')[1].trim();
+        }
+      }
+      break;
+    }
+  }
 
-  if (!match) {
+  if (!frameName || !theme || !sourceFilePath) {
     return null;
   }
 
-  const [, baseName, frameName, theme] = match;
-
-  // Reconstruct the source file path
-  const sourceFilePath = path.join(parsed.dir, `${baseName}.excalidraw`);
-
   return {
-    basename: baseName,
     frameName: frameName,
-    theme: theme,
+    theme: theme as "light" | "dark",
     sourceFilePath: sourceFilePath,
   };
 }
@@ -69,9 +80,9 @@ export class ExcalidrawFrameReferenceProvider
   ): Promise<vscode.Disposable> {
     const provider = new ExcalidrawFrameReferenceProvider(context);
 
-    // Register for SVG files matching the pattern: *.excalidraw.*.*.svg
+    // Register for SVG files matching the pattern: *.exp.svg
     const selector = {
-      pattern: "**/*.excalidraw.*.*.svg",
+      pattern: "**/*.exp.svg",
       scheme: "file",
     };
 
@@ -160,7 +171,11 @@ export class ExcalidrawFrameReferenceProvider
   }
 
   private getWebviewContent(document: FrameReferenceDocument): string {
-    const basename = path.basename(document.sourceUri.fsPath, ".excalidraw");
+    // Extract basename using VSCode Uri
+    const uri = document.sourceUri;
+    const pathParts = uri.path.split("/").filter(Boolean);
+    const fileName = pathParts[pathParts.length - 1] || "";
+    const basename = fileName.endsWith(".excalidraw") ? fileName.slice(0, -11) : fileName;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -289,18 +304,41 @@ export class ExcalidrawFrameReferenceProvider
     uri: vscode.Uri,
     openContext: vscode.CustomDocumentOpenContext
   ): Promise<FrameReferenceDocument> {
+    console.log("[FrameReference] Opening document:", uri.fsPath);
+
     // Read the SVG file content
     const svgContentBytes = await vscode.workspace.fs.readFile(uri);
     const svgContent = new TextDecoder().decode(svgContentBytes);
 
-    // Parse the filename to get frame info
-    const reference = parseFrameReference(uri.fsPath);
+    // Parse the SVG content to get frame info
+    const reference = parseFrameReference(svgContent);
+    console.log("[FrameReference] Parsed reference:", reference);
 
     if (!reference) {
-      throw new Error("Invalid frame export filename");
+      throw new Error("Invalid frame export: missing metadata");
     }
 
-    const sourceUri = vscode.Uri.file(reference.sourceFilePath);
+    // Resolve relative path to absolute path
+    // Get directory of SVG file
+    const fsPath = uri.fsPath;
+    const dirParts = fsPath.split("/").filter(Boolean);
+    dirParts.pop(); // Remove filename
+
+    // Parse and resolve the relative source path
+    const sourceParts = reference.sourceFilePath.split("/").filter(Boolean);
+    const resolvedParts = [...dirParts];
+
+    for (const part of sourceParts) {
+      if (part === "..") {
+        resolvedParts.pop();
+      } else if (part !== ".") {
+        resolvedParts.push(part);
+      }
+    }
+
+    const absoluteSourcePath = resolvedParts.length > 0 ? "/" + resolvedParts.join("/") : "/";
+    console.log("[FrameReference] Resolved source path:", absoluteSourcePath);
+    const sourceUri = vscode.Uri.file(absoluteSourcePath);
 
     // Create the document with all necessary info
     const document: FrameReferenceDocument = {

@@ -1,5 +1,4 @@
 import * as vscode from "vscode";
-import * as path from "path";
 
 export function getActiveWorkspace() {
   const activeEditor = vscode.window.activeTextEditor;
@@ -24,7 +23,10 @@ export async function newUntitledExcalidrawDocument() {
   const ws = getActiveWorkspace();
   let fileName = `Untitled-${runningCounter}.excalidraw`;
   if (ws) {
-    fileName = path.join(ws.uri.fsPath, fileName);
+    // Join paths manually without path module
+    const wsPath = ws.uri.fsPath;
+    const sep = wsPath.includes('/') ? '/' : '/';
+    fileName = wsPath + sep + fileName;
   }
   const uri = vscode.Uri.parse(`untitled:${fileName}`);
   await vscode.commands.executeCommand(
